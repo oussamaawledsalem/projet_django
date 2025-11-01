@@ -1,16 +1,13 @@
-echo '#!/usr/bin/env bash
-set +e
+#!/usr/bin/env bash
+set -e
 
-echo "=== Installation avec Poetry ==="
-poetry install --no-dev
+echo "=== Installation des dépendances ==="
+pip install -r requirements.txt
 
-echo "=== Gestion static files ==="
+echo "=== Collecte des fichiers statiques ==="
 python manage.py collectstatic --noinput --clear || mkdir -p staticfiles
 
-echo "=== Application migrations ==="
+echo "=== Application des migrations ==="
 python manage.py migrate
 
-echo "=== Vérification installation ==="
-poetry show gunicorn
-
-echo "✅ Build Poetry réussi"' > build.sh
+echo "✅ Build réussi"
