@@ -22,5 +22,3 @@ services:
 databases:
   - name: projet-django-db
     plan: free
-    databaseName: projet_django
-    user: django_user
