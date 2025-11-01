@@ -1,14 +1,39 @@
+from implicit.als import AlternatingLeastSquares
+from scipy.sparse import coo_matrix
+from apps.book.models import Book, User
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
-from apps.book.models import Book
 from .models import UserInteraction
-import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.neighbors import NearestNeighbors
 import numpy as np
 from django.contrib.auth import get_user_model
+from collections import defaultdict
+
 User = get_user_model()
+
+def train_als_model():
+    user_book_data = []
+    for user in User.objects.all():
+        for book in user.favorite_books.all():
+            user_book_data.append((user.id, book.id, 1))
+
+    # REMPLACEMENT PANDAS : Créer des listes séparées pour la matrice sparse
+    book_ids = [item[1] for item in user_book_data]
+    user_ids = [item[0] for item in user_book_data]
+    interactions = [item[2] for item in user_book_data]
+
+    # Créer la matrice sparse directement
+    sparse_matrix = coo_matrix(
+        (interactions, (book_ids, user_ids))
+    )
+
+    model = AlternatingLeastSquares(factors=20, regularization=0.1, iterations=20)
+    model.fit(sparse_matrix)
+
+    return model, sparse_matrix
+
 @login_required
 def recommended_books(request):
     user = request.user
@@ -44,30 +69,44 @@ def get_book_recommendations(book_id, top_n=5):
     # Récupérer tous les livres depuis la base
     books = Book.objects.all()
     
-    # Construire un DataFrame
-    df = pd.DataFrame(list(books.values('id', 'title', 'content', 'genre')))
-    
-    # Combiner contenu et genre pour enrichir le texte
-    df['combined'] = df['content'] + ' ' + df['genre']
+    # REMPLACEMENT PANDAS : Utiliser des listes Python au lieu de DataFrame
+    book_data = []
+    for book in books:
+        book_data.append({
+            'id': book.id,
+            'title': book.title,
+            'content': book.content,
+            'genre': book.genre,
+            'combined': f"{book.content} {book.genre}"
+        })
     
     # TF-IDF
     tfidf = TfidfVectorizer(stop_words='english')
-    tfidf_matrix = tfidf.fit_transform(df['combined'])
+    tfidf_matrix = tfidf.fit_transform([book['combined'] for book in book_data])
     
     # Calculer similarité cosine
     cosine_sim = cosine_similarity(tfidf_matrix, tfidf_matrix)
     
     # Trouver l'index du livre donné
-    idx = df.index[df['id'] == book_id].tolist()[0]
+    idx = None
+    for i, book in enumerate(book_data):
+        if book['id'] == book_id:
+            idx = i
+            break
+    
+    if idx is None:
+        return Book.objects.none()
     
     # Trier les livres similaires
     sim_scores = list(enumerate(cosine_sim[idx]))
     sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
-    sim_scores = sim_scores[1:top_n+1]  # exclure le livre lui-même
+    sim_scores = sim_scores[1:top_n+1]
     
     # Récupérer les IDs
     book_indices = [i[0] for i in sim_scores]
-    return Book.objects.filter(id__in=df.iloc[book_indices]['id'].values)
+    recommended_ids = [book_data[i]['id'] for i in book_indices]
+    return Book.objects.filter(id__in=recommended_ids)
+
 def build_interaction_matrix():
     user_book_data = []
 
@@ -75,47 +114,80 @@ def build_interaction_matrix():
         for book in user.favorite_books.all():
             user_book_data.append((user.id, book.id, 1))
 
-    # <--- Ajouter le print ici
     print("User-Book Data:", user_book_data)
 
-    df = pd.DataFrame(user_book_data, columns=['user_id', 'book_id', 'interaction'])
-    if df.empty:
-        return pd.DataFrame()  # Aucun favori
+    # REMPLACEMENT PANDAS : Créer une structure de données sans pandas
+    if not user_book_data:
+        return None
 
-    user_book_matrix = df.pivot(index='user_id', columns='book_id', values='interaction').fillna(0)
-    return user_book_matrix
+    # Créer un dictionnaire pour la matrice utilisateur-livre
+    user_book_dict = defaultdict(dict)
+    for user_id, book_id, interaction in user_book_data:
+        user_book_dict[user_id][book_id] = interaction
 
+    return user_book_dict
 
-def train_knn_model(user_book_matrix):
-    if user_book_matrix.empty:
+def train_knn_model(user_book_dict):
+    if not user_book_dict:
+        return None
+
+    # Créer une liste de tous les livres uniques
+    all_books = set()
+    for books in user_book_dict.values():
+        all_books.update(books.keys())
+    all_books = sorted(all_books)
+
+    # Créer la matrice manuellement
+    matrix_data = []
+    user_ids = []
+    
+    for user_id, books in user_book_dict.items():
+        user_vector = [books.get(book_id, 0) for book_id in all_books]
+        matrix_data.append(user_vector)
+        user_ids.append(user_id)
+
+    if not matrix_data:
         return None
 
     model = NearestNeighbors(metric='cosine', algorithm='brute')
-    model.fit(user_book_matrix)
-    return model
+    model.fit(matrix_data)
+    
+    return model, matrix_data, user_ids, all_books
 
 def get_user_recommendations(user_id, top_n=5):
-    user_book_matrix = build_interaction_matrix()
-    if user_book_matrix.empty or user_id not in user_book_matrix.index:
+    user_book_dict = build_interaction_matrix()
+    if not user_book_dict or user_id not in user_book_dict:
         return []
 
-    model = train_knn_model(user_book_matrix)
+    model, matrix_data, user_ids, all_books = train_knn_model(user_book_dict)
+    if not model:
+        return []
+
+    # Trouver l'index de l'utilisateur
+    try:
+        user_index = user_ids.index(user_id)
+    except ValueError:
+        return []
 
     # ne pas dépasser le nombre d'utilisateurs existants
-    n_neighbors = min(top_n + 1, len(user_book_matrix))
+    n_neighbors = min(top_n + 1, len(user_ids))
 
     distances, indices = model.kneighbors(
-        [user_book_matrix.loc[user_id].values], n_neighbors=n_neighbors
+        [matrix_data[user_index]], n_neighbors=n_neighbors
     )
 
-    neighbor_ids = [user_book_matrix.index[i] for i in indices[0] if user_book_matrix.index[i] != user_id]
+    neighbor_ids = [user_ids[i] for i in indices[0] if user_ids[i] != user_id]
 
     recommended_books_ids = []
     for neighbor in neighbor_ids:
-        neighbor_books = user_book_matrix.loc[neighbor]
-        unseen_books = neighbor_books[(neighbor_books > 0) & (user_book_matrix.loc[user_id] == 0)].index.tolist()
+        neighbor_books = user_book_dict[neighbor]
+        user_books = user_book_dict[user_id]
+        
+        # Livres que le voisin a mais pas l'utilisateur
+        unseen_books = [book_id for book_id in neighbor_books 
+                       if neighbor_books[book_id] > 0 and user_books.get(book_id, 0) == 0]
         recommended_books_ids.extend(unseen_books)
 
+    # Éviter les doublons
     recommended_books_ids = list(dict.fromkeys(recommended_books_ids))[:top_n]
     return Book.objects.filter(id__in=recommended_books_ids)
-
