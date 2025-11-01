@@ -2,8 +2,6 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.http import HttpResponse, JsonResponse
-
-from apps.booksRecommendation.views import get_book_recommendations
 from apps.cart.models import UserLibrary
 from .models import Book
 from .forms import BookForm
@@ -470,6 +468,7 @@ def check_is_favorite(request, book_id):
     is_favorite = book.favorites.filter(id=request.user.id).exists()
     return JsonResponse({"is_favorite": is_favorite})
 def book_detail(request, book_id):
+    from apps.booksRecommendation.views import get_book_recommendations
     book = get_object_or_404(Book, id=book_id)
     recommended_books = get_book_recommendations(book_id, top_n=5)
     
