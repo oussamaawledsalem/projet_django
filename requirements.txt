@@ -6,6 +6,3 @@ python-decouple==3.8
 Pillow==10.4.0
 stripe==8.8.0
 dj-database-url==0.5.0
-pandas==1.5.3  # Version plus ancienne avec wheels disponibles
-numpy==1.24.3
-nltk==3.8.1
