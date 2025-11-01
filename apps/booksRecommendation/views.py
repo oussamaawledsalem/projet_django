@@ -1,7 +1,8 @@
 from implicit.als import AlternatingLeastSquares
 from scipy.sparse import coo_matrix
-from apps.book.models import Book, User
-from django.shortcuts import render
+from apps.book.models import Book
+from django.contrib.auth import get_user_model
+User = get_user_model() from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from .models import UserInteraction
 from sklearn.feature_extraction.text import TfidfVectorizer
