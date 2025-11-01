@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
     gcc \
     python3-dev \
     curl \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -32,6 +33,12 @@ COPY . .
 # Collect static files
 RUN python manage.py collectstatic --noinput --clear
 
+# Create startup script
+RUN echo '#!/bin/bash\n\
+python manage.py migrate\n\
+gunicorn core.wsgi:application --bind 0.0.0.0:8000 --workers 3\n\
+' > /app/start.sh && chmod +x /app/start.sh
+
 # Create non-privileged user
 RUN useradd -m -r appuser && chown -R appuser /app
 USER appuser
@@ -43,5 +50,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/healthz || exit 1
 
-# Start Gunicorn for production
-CMD ["gunicorn", "core.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]
+# Start with migrations then server
+CMD ["/bin/bash", "/app/start.sh"]
