@@ -3,6 +3,7 @@ services:
     name: projet-django-boutique
     env: python
     plan: free
+    pythonVersion: "3.11.0"
     buildCommand: "./build.sh"
     startCommand: "gunicorn core.wsgi:application"
     envVars:
