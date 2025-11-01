@@ -1,43 +1,47 @@
 # syntax=docker/dockerfile:1
-
-ARG PYTHON_VERSION=3.12.10
+ARG PYTHON_VERSION=3.11.8
 FROM python:${PYTHON_VERSION}-slim as base
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV DEBUG=False
 ENV NLTK_DATA=/usr/share/nltk_data
 
 WORKDIR /app
 
-# Create a non-privileged user with a real home directory
-ARG UID=10001
-RUN adduser \
-    --disabled-password \
-    --gecos "" \
-    --home "/home/appuser" \
-    --shell "/bin/bash" \
-    --uid "${UID}" \
-    appuser \
-    && mkdir -p /home/appuser \
-    && chown appuser:appuser /home/appuser
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    python3-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
-RUN --mount=type=cache,target=/root/.cache/pip \
-    --mount=type=bind,source=requirements.txt,target=requirements.txt \
-    python -m pip install --upgrade pip \
-    && python -m pip install -r requirements.txt
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Install additional packages
-RUN pip install --no-cache-dir sentence-transformers pdfplumber==0.11.4 nltk textblob
+RUN pip install --no-cache-dir sentence-transformers pdfplumber nltk textblob
 
-# Download NLTK data to system-wide directory
-RUN python -m nltk.downloader -d /usr/share/nltk_data punkt punkt_tab wordnet averaged_perceptron_tagger
+# Download NLTK data
+RUN python -m nltk.downloader -d /usr/share/nltk_data punkt stopwords wordnet
 
-# Switch to non-privileged user
-USER appuser
-
+# Copy project
 COPY . .
 
+# Collect static files
+RUN python manage.py collectstatic --noinput --clear
+
+# Create non-privileged user
+RUN useradd -m -r appuser && chown -R appuser /app
+USER appuser
+
+# Expose port
 EXPOSE 8000
 
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/healthz || exit 1
+
+# Start Gunicorn for production
+CMD ["gunicorn", "core.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]
