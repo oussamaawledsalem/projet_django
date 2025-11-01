@@ -135,8 +135,7 @@ STATIC_URL = '/static/'
 STATICFILES_DIRS = (os.path.join(CORE_DIR, 'apps/static'),)
 
 # WhiteNoise configuration for better static file handling
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
 # Custom user model
 AUTH_USER_MODEL = 'authentication.User'
 
