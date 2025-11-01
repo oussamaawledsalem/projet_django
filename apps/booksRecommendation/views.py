@@ -2,14 +2,13 @@ from implicit.als import AlternatingLeastSquares
 from scipy.sparse import coo_matrix
 from apps.book.models import Book
 from django.contrib.auth import get_user_model
-User = get_user_model() from django.shortcuts import render
+from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from .models import UserInteraction
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.neighbors import NearestNeighbors
 import numpy as np
-from django.contrib.auth import get_user_model
 from collections import defaultdict
 
 User = get_user_model()
